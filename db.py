@@ -1,24 +1,66 @@
 import os
 from dotenv import load_dotenv
-from sqlmodel import create_engine, Session, SQLModel
-from typing import Annotated, Generator
+
+from sqlmodel import SQLModel, Session, create_engine
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+
 from fastapi import Depends
+from typing import Annotated
 
 load_dotenv()
 
-# 1. Asegúrate de que el driver sea psycopg2
-database_url = os.getenv("DATABASE_URL")
-if database_url and database_url.startswith("postgresql://"):
-    database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+# -----------------------------
+# URLS
+# -----------------------------
 
-# 2. Motor sincrónico estándar
-engine = create_engine(database_url, echo=True, pool_pre_ping=True)
+NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
-def get_session() -> Generator[Session, None, None]:
+LOCAL_DATABASE_URL = "sqlite:///movies.db"
+
+# -----------------------------
+# Intentar Neon
+# -----------------------------
+
+try:
+    print("Intentando conectar a Neon...")
+
+    engine = create_engine(
+        NEON_DATABASE_URL,
+        echo=True,
+        pool_pre_ping=True
+    )
+
+    # prueba real de conexión
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+
+    print("Conectado a Neon correctamente")
+
+except Exception as e:
+    print("No se pudo conectar a Neon")
+    print("Usando SQLite local...")
+    print(f"Error: {e}")
+
+    engine = create_engine(
+        LOCAL_DATABASE_URL,
+        echo=True,
+        connect_args={"check_same_thread": False}
+    )
+
+# -----------------------------
+# Crear tablas
+# -----------------------------
+
+def create_db_and_tables():
+    SQLModel.metadata.create_all(engine)
+
+# -----------------------------
+# Sesión
+# -----------------------------
+
+def get_session():
     with Session(engine) as session:
         yield session
 
 SessionDep = Annotated[Session, Depends(get_session)]
-
-def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
